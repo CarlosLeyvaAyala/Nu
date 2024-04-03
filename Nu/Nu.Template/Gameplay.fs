@@ -42,23 +42,31 @@ module Gameplay =
     type GameplayDispatcher () =
         inherit ScreenDispatcher<Gameplay, GameplayMessage, Command> ({ GameplayTime = 0; GameplayState = Quit })
 
-        // here we define the screen's properties and event handling
-        override this.Initialize (_, _) =
+        // here we define the screen's property values and event handling
+        override this.Definitions (_, _) =
             [Screen.SelectEvent => FinishCommencing
              Screen.DeselectingEvent => FinishQuitting
              Screen.TimeUpdateEvent => TimeUpdate]
 
         // here we handle the above messages
         override this.Message (gameplay, message, _, world) =
+
             match message with
             | FinishCommencing ->
-                just { gameplay with GameplayState = Commence }
+                let gameplay = { gameplay with GameplayState = Commence }
+                just gameplay
+
             | StartQuitting ->
-                just { gameplay with GameplayState = Quitting }
+                let gameplay = { gameplay with GameplayState = Quitting }
+                just gameplay
+
             | FinishQuitting ->
-                just { gameplay with GameplayState = Quit }
+                let gameplay = { gameplay with GameplayState = Quit }
+                just gameplay
+
             | TimeUpdate ->
-                just { gameplay with GameplayTime = gameplay.GameplayTime + (let d = world.GameDelta in d.Updates) }
+                let gameplay = { gameplay with GameplayTime = gameplay.GameplayTime + (let d = world.GameDelta in d.Updates) }
+                just gameplay
 
         // here we describe the content of the game including the hud, the scene, and the player
         override this.Content (gameplay, _) =
@@ -68,14 +76,14 @@ module Gameplay =
 
                 [// time
                  Content.text Simulants.GameplayTime.Name
-                    [Entity.Position == v3 0.0f 232.0f 0.0f
+                    [Entity.Position == v3 0.0f 150.0f 0.0f
                      Entity.Elevation == 10.0f
                      Entity.Justification == Justified (JustifyCenter, JustifyMiddle)
                      Entity.Text := string gameplay.GameplayTime]
                  
                  // quit
                  Content.button Simulants.GameplayQuit.Name
-                    [Entity.Position == v3 336.0f -216.0f 0.0f
+                    [Entity.Position == v3 224.0f -144.0f 0.0f
                      Entity.Elevation == 10.0f
                      Entity.Text == "Quit"
                      Entity.ClickEvent => StartQuitting]]

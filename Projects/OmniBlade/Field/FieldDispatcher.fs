@@ -44,7 +44,7 @@ module FieldDispatcher =
                 true
             else false
 
-        override this.Initialize (_, _) =
+        override this.Definitions (_, _) =
             [Screen.UpdateEvent => Update
              Screen.UpdateEvent => ProcessKeyInput
              Screen.PostUpdateEvent => UpdateFieldTransition
@@ -719,7 +719,7 @@ module FieldDispatcher =
 
                  // feeler
                  Content.feeler Simulants.FieldFeeler.Name
-                    [Entity.Position == -Constants.Render.ResolutionF.V3 * 0.5f; Entity.Elevation == Constants.Field.FeelerElevation; Entity.Size == Constants.Render.ResolutionF.V3
+                    [Entity.Position == -Constants.Render.Resolution.V2.V3 * 0.5f; Entity.Elevation == Constants.Field.FeelerElevation; Entity.Size == Constants.Render.Resolution.V2.V3
                      Entity.TouchingEvent =|> fun evt -> ProcessTouchInput evt.Data |> signal]
 
                  // menu button

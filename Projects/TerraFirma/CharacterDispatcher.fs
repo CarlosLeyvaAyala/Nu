@@ -33,20 +33,17 @@ module CharacterDispatcher =
     type CharacterDispatcher (character : Character) =
         inherit Entity3dDispatcher<Character, CharacterMessage, CharacterCommand> (true, character)
 
-        new () =
-            CharacterDispatcher (Character.initial)
-
         static member Facets =
             [typeof<RigidBodyFacet>]
 
-        override this.Initialize (character, _) =
+        override this.Definitions (character, _) =
             [Entity.Size == v3Dup 2.0f
              Entity.Offset == v3 0.0f 1.0f 0.0f
              Entity.BodyType == KinematicCharacter
              Entity.SleepingAllowed == true
-             Entity.CharacterProperties == if not character.Player then { CharacterProperties.defaultProperties with PenetrationDepthMax = 0.1f } else CharacterProperties.defaultProperties
+             Entity.CharacterProperties == character.CharacterProperties
              Entity.BodyShape == CapsuleShape { Height = 1.0f; Radius = 0.35f; TransformOpt = Some (Affine.makeTranslation (v3 0.0f 0.85f 0.0f)); PropertiesOpt = None }
-             Entity.FollowTargetOpt := if not character.Player then Some Simulants.GameplayPlayer else None
+             Entity.FollowTargetOpt := match character.CharacterType with Enemy -> Some Simulants.GameplayPlayer | Player -> None
              Game.KeyboardKeyDownEvent =|> fun evt -> UpdateInputKey evt.Data
              Entity.UpdateEvent => Update
              Game.PostUpdateEvent => SyncWeaponTransform]
@@ -106,8 +103,11 @@ module CharacterDispatcher =
             | WeaponCollide collisionData ->
                 match collisionData.BodyShapeCollidee.BodyId.BodySource with
                 | :? Entity as collidee when collidee.Is<CharacterDispatcher> world && collidee <> entity ->
-                    let character = { character with WeaponCollisions = Set.add collidee character.WeaponCollisions }
-                    just character
+                    let collideeCharacter = collidee.GetCharacter world
+                    if character.CharacterType <> collideeCharacter.CharacterType then
+                        let character = { character with WeaponCollisions = Set.add collidee character.WeaponCollisions }
+                        just character
+                    else just character
                 | _ -> just character
 
             | WeaponSeparateExplicit separationData ->
@@ -142,21 +142,22 @@ module CharacterDispatcher =
             | SyncWeaponTransform ->
                 let animatedModel = entity / Constants.Gameplay.CharacterAnimatedModelName
                 let weapon = entity / Constants.Gameplay.CharacterWeaponName
-                match (animatedModel.GetBoneOffsetsOpt world, animatedModel.GetBoneTransformsOpt world) with
-                | (Some offsets, Some transforms) when weapon.Exists world ->
+                match animatedModel.TryGetBoneTransformByName Constants.Gameplay.CharacterWeaponHandBoneName world with
+                | Some weaponHandBoneTransform ->
                     let weaponTransform =
-                        Matrix4x4.CreateTranslation (v3 0.0f 0.0f 0.02f) *
+                        Matrix4x4.CreateTranslation (v3 -0.1f 0.0f 0.02f) *
                         Matrix4x4.CreateFromAxisAngle (v3Forward, MathF.PI_OVER_2) *
-                        offsets.[Constants.Gameplay.CharacterWeaponHandBoneIndex].Inverted *
-                        transforms.[Constants.Gameplay.CharacterWeaponHandBoneIndex] *
-                        animatedModel.GetAffineMatrix world
+                        weaponHandBoneTransform
                     let world = weapon.SetPosition weaponTransform.Translation world
                     let world = weapon.SetRotation weaponTransform.Rotation world
                     just world
-                | (_, _) -> just world
+                | None -> just world
 
             | PublishCharactersAttacked attackedCharacters ->
-                let world = World.publish attackedCharacters (Events.CharactersAttacked --> entity) entity world
+                let world =
+                    Set.fold (fun world attackedCharacter ->
+                        World.publish attackedCharacter (Events.CharacterAttackedEvent --> entity) entity world)
+                        world attackedCharacters
                 just world
 
             | PublishDie ->

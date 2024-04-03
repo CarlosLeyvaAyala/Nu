@@ -40,7 +40,7 @@ module Twenty48 =
         inherit GameDispatcher<Model, Message, Command> (Splash)
 
         // here we define the game's properties and event handling
-        override this.Initialize (model, _) =
+        override this.Definitions (model, _) =
             [Game.DesiredScreen :=
                 match model with
                 | Splash -> Desire Simulants.Splash
@@ -63,7 +63,7 @@ module Twenty48 =
             match message with
             | ShowTitle -> just Title
             | ShowCredits -> just Credits
-            | ShowGameplay -> just (Gameplay Gameplay.initial)
+            | ShowGameplay -> just (Gameplay (Gameplay.initial Commencing))
             | Update ->
                 match model with
                 | Gameplay gameplay ->
