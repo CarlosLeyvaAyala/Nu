@@ -773,14 +773,6 @@ module WorldModule2 =
                 World.unregisterEntityPhysics entity world)
                 world entities
 
-        static member internal signalFn (signalObj : obj) (simulant : Simulant) world =
-            match simulant with
-            | :? Entity as entity -> (entity.GetDispatcher world).Signal (signalObj, entity, world)
-            | :? Group as group -> (group.GetDispatcher world).Signal (signalObj, group, world)
-            | :? Screen as screen -> (screen.GetDispatcher world).Signal (signalObj, screen, world)
-            | :? Game as game -> (game.GetDispatcher world).Signal (signalObj, game, world)
-            | _ -> failwithumf ()
-
         /// Try to reload the overlayer currently in use by the world.
         static member tryReloadOverlayer inputDirectory outputDirectory world =
             
@@ -1074,8 +1066,8 @@ module WorldModule2 =
                                 let rotation = bodyTransformMessage.Rotation
                                 let linearVelocity = bodyTransformMessage.LinearVelocity
                                 let angularVelocity = bodyTransformMessage.AngularVelocity
-                                let bodyMotion = entity.GetBodyMotion world
-                                if bodyMotion = ManualMotion || bodyId.BodyIndex <> Constants.Physics.InternalIndex then
+                                let physicsMotion = entity.GetPhysicsMotion world
+                                if physicsMotion = ManualMotion|| bodyId.BodyIndex <> Constants.Physics.InternalIndex then
                                     let transformData =
                                         { BodyCenter = center
                                           BodyRotation = rotation
@@ -1752,7 +1744,7 @@ module EntityDispatcherModule2 =
 
     type World with
 
-        static member internal signalEntity<'model, 'message, 'command when 'message :> Message and 'command :> Command> (signal : Signal) (entity : Entity) world =
+        static member inline internal signalEntity<'model, 'message, 'command when 'message :> Message and 'command :> Command> (signal : Signal) (entity : Entity) world =
             match entity.GetDispatcher world with
             | :? EntityDispatcher<'model, 'message, 'command> as dispatcher ->
                 Signal.processSignal dispatcher.Message dispatcher.Command (entity.ModelGeneric<'model> ()) signal entity world
@@ -1806,7 +1798,7 @@ module EntityDispatcherModule2 =
             let model = this.GetModel entity world
             let (signals, model) = this.Physics (center, rotation, linearVelocity, angularVelocity, model, entity, world)
             let world = this.SetModel model entity world
-            Signal.processSignals this.Message this.Command (this.Model entity) signals entity world
+            List.fold (fun world signal -> Signal.processSignal this.Message this.Command (this.Model entity) signal entity world) world signals
 
         override this.Render (renderPass, entity, world) =
             this.Render (this.GetModel entity world, renderPass, entity, world)
@@ -1815,18 +1807,19 @@ module EntityDispatcherModule2 =
             let model = entity.GetModelGeneric<'model> world
             let (signals, model) = this.Edit (model, operation, entity, world)
             let world = this.SetModel model entity world
-            Signal.processSignals this.Message this.Command (this.Model entity) signals entity world
+            List.fold (fun world signal -> Signal.processSignal this.Message this.Command (this.Model entity) signal entity world) world signals
 
+        [<DebuggerHidden>]
         override this.Signal (signalObj : obj, entity, world) =
             match signalObj with
-            | :? 'message as message -> entity.SignalPlus<'model, 'message, 'command> message world
-            | :? 'command as command -> entity.SignalPlus<'model, 'message, 'command> command world
+            | :? 'message as message -> World.signalEntity<'model, 'message, 'command> message entity world
+            | :? 'command as command -> World.signalEntity<'model, 'message, 'command> command entity world
             | _ ->
                 try let message = signalObj |> valueToSymbol |> symbolToValue : 'message
-                    entity.SignalPlus<'model, 'message, 'command> message world
+                    World.signalEntity<'model, 'message, 'command> message entity world
                 with _ ->
                     try let command = signalObj |> valueToSymbol |> symbolToValue : 'command
-                        entity.SignalPlus<'model, 'message, 'command> command world
+                        World.signalEntity<'model, 'message, 'command> command entity world
                     with _ ->
                         Log.debugOnce
                             ("Incompatible signal type received by entity (signal = '" + scstring signalObj + "'; entity = '" + scstring entity + "').\n" +
@@ -1943,6 +1936,13 @@ module EntityDispatcherModule2 =
         static member Properties =
             [define Entity.Size Constants.Engine.Entity3dSizeDefault]
 
+        override this.RayCast (ray, entity, world) =
+            if Array.isEmpty (entity.GetFacets world) then
+                let intersectionOpt = ray.Intersects (entity.GetBounds world)
+                if intersectionOpt.HasValue then [|intersectionOpt.Value|]
+                else [||]
+            else base.RayCast (ray, entity, world)
+
     /// A vui dispatcher (gui in 3d).
     and [<AbstractClass>] VuiDispatcher<'model, 'message, 'command when 'message :> Message and 'command :> Command> (makeInitial : World -> 'model) =
         inherit EntityDispatcher<'model, 'message, 'command> (false, true, false, makeInitial)
@@ -2056,7 +2056,7 @@ module GroupDispatcherModule =
 
     type World with
 
-        static member internal signalGroup<'model, 'message, 'command when 'message :> Message and 'command :> Command> signal (group : Group) world =
+        static member inline internal signalGroup<'model, 'message, 'command when 'message :> Message and 'command :> Command> signal (group : Group) world =
             match group.GetDispatcher world with
             | :? GroupDispatcher<'model, 'message, 'command> as dispatcher ->
                 Signal.processSignal dispatcher.Message dispatcher.Command (group.ModelGeneric<'model> ()) signal group world
@@ -2108,16 +2108,17 @@ module GroupDispatcherModule =
         override this.Render (renderPass, group, world) =
             this.Render (this.GetModel group world, renderPass, group, world)
 
+        [<DebuggerHidden>]
         override this.Signal (signalObj : obj, group, world) =
             match signalObj with
-            | :? 'message as message -> group.SignalPlus<'model, 'message, 'command> message world
-            | :? 'command as command -> group.SignalPlus<'model, 'message, 'command> command world
+            | :? 'message as message -> World.signalGroup<'model, 'message, 'command> message group world
+            | :? 'command as command -> World.signalGroup<'model, 'message, 'command> command group world
             | _ ->
                 try let message = signalObj |> valueToSymbol |> symbolToValue : 'message
-                    group.SignalPlus<'model, 'message, 'command> message world
+                    World.signalGroup<'model, 'message, 'command> message group world
                 with _ ->
                     try let command = signalObj |> valueToSymbol |> symbolToValue : 'command
-                        group.SignalPlus<'model, 'message, 'command> command world
+                        World.signalGroup<'model, 'message, 'command> command group world
                     with _ ->
                         Log.debugOnce
                             ("Incompatible signal type received by group (signal = '" + scstring signalObj + "'; group = '" + scstring group + "').\n" +
@@ -2227,7 +2228,7 @@ module ScreenDispatcherModule =
 
     type World with
 
-        static member internal signalScreen<'model, 'message, 'command when 'message :> Message and 'command :> Command> signal (screen : Screen) world =
+        static member inline internal signalScreen<'model, 'message, 'command when 'message :> Message and 'command :> Command> signal (screen : Screen) world =
             match screen.GetDispatcher world with
             | :? ScreenDispatcher<'model, 'message, 'command> as dispatcher ->
                 Signal.processSignal dispatcher.Message dispatcher.Command (screen.ModelGeneric<'model> ()) signal screen world
@@ -2279,16 +2280,17 @@ module ScreenDispatcherModule =
         override this.Render (renderPass, screen, world) =
             this.Render (this.GetModel screen world, renderPass, screen, world)
 
+        [<DebuggerHidden>]
         override this.Signal (signalObj : obj, screen, world) =
             match signalObj with
-            | :? 'message as message -> screen.SignalPlus<'model, 'message, 'command> message world
-            | :? 'command as command -> screen.SignalPlus<'model, 'message, 'command> command world
+            | :? 'message as message -> World.signalScreen<'model, 'message, 'command> message screen world
+            | :? 'command as command -> World.signalScreen<'model, 'message, 'command> command screen world
             | _ ->
                 try let message = signalObj |> valueToSymbol |> symbolToValue : 'message
-                    screen.SignalPlus<'model, 'message, 'command> message world
+                    World.signalScreen<'model, 'message, 'command> message screen world
                 with _ ->
                     try let command = signalObj |> valueToSymbol |> symbolToValue : 'command
-                        screen.SignalPlus<'model, 'message, 'command> command world
+                        World.signalScreen<'model, 'message, 'command> command screen world
                     with _ ->
                         Log.debugOnce
                             ("Incompatible signal type received by screen (signal = '" + scstring signalObj + "'; screen = '" + scstring screen + "').\n" +
@@ -2398,7 +2400,7 @@ module GameDispatcherModule =
 
     type World with
 
-        static member internal signalGame<'model, 'message, 'command when 'message :> Message and 'command :> Command> signal (game : Game) world =
+        static member inline internal signalGame<'model, 'message, 'command when 'message :> Message and 'command :> Command> signal (game : Game) world =
             match game.GetDispatcher world with
             | :? GameDispatcher<'model, 'message, 'command> as dispatcher ->
                 Signal.processSignal dispatcher.Message dispatcher.Command (game.ModelGeneric<'model> ()) signal game world
@@ -2457,16 +2459,17 @@ module GameDispatcherModule =
         override this.Render (renderPass, game, world) =
             this.Render (this.GetModel game world, renderPass, game, world)
 
+        [<DebuggerHidden>]
         override this.Signal (signalObj : obj, game, world) =
             match signalObj with
-            | :? 'message as message -> game.SignalPlus<'model, 'message, 'command> message world
-            | :? 'command as command -> game.SignalPlus<'model, 'message, 'command> command world
+            | :? 'message as message -> World.signalGame<'model, 'message, 'command> message game world
+            | :? 'command as command -> World.signalGame<'model, 'message, 'command> command game world
             | _ ->
                 try let message = signalObj |> valueToSymbol |> symbolToValue : 'message
-                    game.SignalPlus<'model, 'message, 'command> message world
+                    World.signalGame<'model, 'message, 'command> message game world
                 with _ ->
                     try let command = signalObj |> valueToSymbol |> symbolToValue : 'command
-                        game.SignalPlus<'model, 'message, 'command> command world
+                        World.signalGame<'model, 'message, 'command> command game world
                     with _ ->
                         Log.debugOnce
                             ("Incompatible signal type received by game (signal = '" + scstring signalObj + "'; game = '" + scstring game + "').\n" +
@@ -2624,21 +2627,21 @@ module WorldModule2' =
     type World with
 
         /// Send a signal to a simulant.
-        static member signal (signal : Signal) (simulant : Simulant) world =
+        static member inline signal (signal : Signal) (simulant : Simulant) world =
             match simulant with
-            | :? Entity as entity -> entity.Signal signal world
-            | :? Group as group -> group.Signal signal world
-            | :? Screen as screen -> screen.Signal signal world
-            | :? Game as game -> game.Signal signal world
+            | :? Entity as entity -> (entity.GetDispatcher world).Signal (signal, entity, world)
+            | :? Group as group -> (group.GetDispatcher world).Signal (signal, group, world)
+            | :? Screen as screen -> (screen.GetDispatcher world).Signal (signal, screen, world)
+            | :? Game as game -> (game.GetDispatcher world).Signal (signal, game, world)
             | _ -> failwithumf ()
 
         /// Send a signal to a simulant, explicitly specifing MMCC types.
-        static member signalPlus<'model, 'message, 'command when 'message :> Message and 'command :> Command> signal (simulant : Simulant) world =
+        static member inline signalPlus<'model, 'message, 'command when 'message :> Message and 'command :> Command> signal (simulant : Simulant) world =
             match simulant with
-            | :? Entity as entity -> entity.SignalPlus<'model, 'message, 'command> signal world
-            | :? Group as group -> group.SignalPlus<'model, 'message, 'command> signal world
-            | :? Screen as screen -> screen.SignalPlus<'model, 'message, 'command> signal world
-            | :? Game as game -> game.SignalPlus<'model, 'message, 'command> signal world
+            | :? Entity as entity -> World.signalEntity<'model, 'message, 'command> signal entity world
+            | :? Group as group -> World.signalGroup<'model, 'message, 'command> signal group world
+            | :? Screen as screen -> World.signalScreen<'model, 'message, 'command> signal screen world
+            | :? Game as game -> World.signalGame<'model, 'message, 'command> signal game world
             | _ -> failwithumf ()
 
         static member internal updateLateBindings3 (latebindings : LateBindings) (simulant : Simulant) world =

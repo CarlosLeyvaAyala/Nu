@@ -1355,9 +1355,9 @@ module RigidBodyFacetModule =
         member this.GetBodyShape world : BodyShape = this.Get (nameof this.BodyShape) world
         member this.SetBodyShape (value : BodyShape) world = this.Set (nameof this.BodyShape) value world
         member this.BodyShape = lens (nameof this.BodyShape) this this.GetBodyShape this.SetBodyShape
-        member this.GetBodyMotion world : BodyMotion = this.Get (nameof this.BodyMotion) world
-        member this.SetBodyMotion (value : BodyMotion) world = this.Set (nameof this.BodyMotion) value world
-        member this.BodyMotion = lens (nameof this.BodyMotion) this this.GetBodyMotion this.SetBodyMotion
+        member this.GetPhysicsMotion world : PhysicsMotion = this.Get (nameof this.PhysicsMotion) world
+        member this.SetPhysicsMotion (value : PhysicsMotion) world = this.Set (nameof this.PhysicsMotion) value world
+        member this.PhysicsMotion = lens (nameof this.PhysicsMotion) this this.GetPhysicsMotion this.SetPhysicsMotion
         member this.GetSensor world : bool = this.Get (nameof this.Sensor) world
         member this.SetSensor (value : bool) world = this.Set (nameof this.Sensor) value world
         member this.Sensor = lens (nameof this.Sensor) this this.GetSensor this.SetSensor
@@ -1383,44 +1383,35 @@ module RigidBodyFacetModule =
             else bodyShape
 
         static let propagatePhysicsPosition (entity : Entity) (evt : Event<ChangeData, Entity>) world =
-            let bodyType = entity.GetBodyType world
-            let bodyMotion = entity.GetBodyMotion world
-            if (bodyType = Static || bodyType = Kinematic || bodyType = KinematicCharacter) && (bodyMotion = ManualMotion || bodyMotion = MixedMotion) then
+            if entity.GetPhysicsMotion world <> ManualMotion then
                 let bodyId = entity.GetBodyId world
                 let position = evt.Data.Value :?> Vector3
                 (Cascade, World.setBodyCenter position bodyId world)
-            else (Cascade, entity.PropagatePhysics world)
+            else (Cascade, world)
 
         static let propagatePhysicsRotation (entity : Entity) (evt : Event<ChangeData, Entity>) world =
-            let bodyType = entity.GetBodyType world
-            let bodyMotion = entity.GetBodyMotion world
-            if (bodyType = Static || bodyType = Kinematic || bodyType = KinematicCharacter) && (bodyMotion = ManualMotion || bodyMotion = MixedMotion) then
+            if entity.GetPhysicsMotion world <> ManualMotion then
                 let bodyId = entity.GetBodyId world
                 let rotation = evt.Data.Value :?> Quaternion
                 (Cascade, World.setBodyRotation rotation bodyId world)
-            else (Cascade, entity.PropagatePhysics world)
+            else (Cascade, world)
 
         static let propagatePhysicsLinearVelocity (entity : Entity) (evt : Event<ChangeData, Entity>) world =
-            let bodyType = entity.GetBodyType world
-            let bodyMotion = entity.GetBodyMotion world
-            if (bodyType = Static || bodyType = Kinematic || bodyType = KinematicCharacter) && (bodyMotion = ManualMotion || bodyMotion = MixedMotion) then
+            if entity.GetPhysicsMotion world <> ManualMotion then
                 let bodyId = entity.GetBodyId world
                 let linearVelocity = evt.Data.Value :?> Vector3
                 (Cascade, World.setBodyLinearVelocity linearVelocity bodyId world)
-            else (Cascade, entity.PropagatePhysics world)
+            else (Cascade, world)
 
         static let propagatePhysicsAngularVelocity (entity : Entity) (evt : Event<ChangeData, Entity>) world =
-            let bodyType = entity.GetBodyType world
-            let bodyMotion = entity.GetBodyMotion world
-            if (bodyType = Static || bodyType = Kinematic || bodyType = KinematicCharacter) && (bodyMotion = ManualMotion || bodyMotion = MixedMotion) then
+            if entity.GetPhysicsMotion world <> ManualMotion then
                 let bodyId = entity.GetBodyId world
                 let angularVelocity = evt.Data.Value :?> Vector3
                 (Cascade, World.setBodyAngularVelocity angularVelocity bodyId world)
-            else (Cascade, entity.PropagatePhysics world)
+            else (Cascade, world)
 
         static let propagatePhysics (entity : Entity) (_ : Event<ChangeData, Entity>) world =
-            let bodyMotion = entity.GetBodyMotion world
-            let world = if bodyMotion = PhysicsMotion then entity.PropagatePhysics world else world
+            let world = entity.PropagatePhysics world
             (Cascade, world)
 
         static member Properties =
@@ -1441,7 +1432,7 @@ module RigidBodyFacetModule =
              define Entity.CollisionCategories "1"
              define Entity.CollisionMask Constants.Physics.CollisionWildcard
              define Entity.BodyShape (BoxShape { Size = v3One; TransformOpt = None; PropertiesOpt = None })
-             define Entity.BodyMotion PhysicsMotion
+             define Entity.PhysicsMotion SynchronizedMotion
              define Entity.Sensor false
              define Entity.Observable false
              computed Entity.BodyId (fun (entity : Entity) _ -> { BodySource = entity; BodyIndex = Constants.Physics.InternalIndex }) None]
@@ -1581,7 +1572,7 @@ module TileMapFacetModule =
              define Entity.CollisionCategories "1"
              define Entity.CollisionMask Constants.Physics.CollisionWildcard
              define Entity.Observable false
-             define Entity.BodyMotion PhysicsMotion
+             define Entity.PhysicsMotion SynchronizedMotion
              define Entity.Color Color.One
              define Entity.Emission Color.Zero
              define Entity.TileLayerClearance 2.0f
@@ -1686,7 +1677,7 @@ module TmxMapFacetModule =
              define Entity.CollisionCategories "1"
              define Entity.CollisionMask Constants.Physics.CollisionWildcard
              define Entity.Observable false
-             define Entity.BodyMotion PhysicsMotion
+             define Entity.PhysicsMotion SynchronizedMotion
              define Entity.Color Color.One
              define Entity.Emission Color.Zero
              define Entity.TileLayerClearance 2.0f
@@ -2226,6 +2217,29 @@ module Light3dFacetModule =
                     world
                 else world
             | _ -> world
+
+[<AutoOpen>]
+module LightingConfigFacetModule =
+
+    type Entity with
+        member this.GetLightingConfig world : LightingConfig = this.Get (nameof this.LightingConfig) world
+        member this.SetLightingConfig (value : LightingConfig) world = this.Set (nameof this.LightingConfig) value world
+        member this.LightingConfig = lens (nameof this.LightingConfig) this this.GetLightingConfig this.SetLightingConfig
+
+    type LightingConfigFacet () =
+        inherit Facet (false)
+
+        static let configureLighting (entity : Entity) world =
+            let lightingConfig = entity.GetLightingConfig world
+            World.enqueueRenderMessage3d (ConfigureLighting lightingConfig) world
+
+        static member Properties =
+            [define Entity.LightingConfig LightingConfig.defaultConfig]
+
+        override this.Register (entity, world) =
+            let world = World.sense (fun evt world -> configureLighting evt.Subscriber world; (Cascade, world)) (entity.ChangeEvent (nameof entity.LightingConfig)) entity (nameof LightingConfigFacet) world
+            configureLighting entity world
+            world
 
 [<AutoOpen>]
 module StaticBillboardFacetModule =

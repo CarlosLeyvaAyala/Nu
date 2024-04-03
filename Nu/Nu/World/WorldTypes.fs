@@ -1699,7 +1699,7 @@ and [<ReferenceEquality>] World =
           AmbientState : World AmbientState
           Subsystems : Subsystems
           Simulants : UMap<Simulant, Simulant USet option> // OPTIMIZATION: using None instead of empty USet to descrease number of USet instances.
-          JobSystem : JobSystem
+          JobGraph : JobGraph
           WorldExtension : WorldExtension }
 
     /// Check that the world is executing with imperative semantics where applicable.
@@ -1953,7 +1953,7 @@ module LensOperators =
 [<RequireQualifiedAccess; CompilationRepresentation (CompilationRepresentationFlags.ModuleSuffix)>]
 module Signal =
 
-    let rec
+    let rec [<DebuggerHidden>]
         processSignal<'model, 'message, 'command, 's when 'message :> Message and 'command :> Command and 's :> Simulant>
         (processMessage : 'model * 'message * 's * World -> Signal list * 'model)
         (processCommand : 'model * 'command * 's * World -> Signal list * World)
@@ -1978,10 +1978,10 @@ module Signal =
             | [] -> world
         | _ -> failwithumf ()
 
-    and processSignals processMessage processCommand modelLens signals simulant world =
-        List.fold
-            (fun world signal -> processSignal processMessage processCommand modelLens signal simulant world)
-            world signals
+    and [<DebuggerHidden>] processSignals processMessage processCommand modelLens signals simulant world =
+        let mutable world = world // NOTE: inlined fold for speed and to shorten stack trace.
+        for signal in signals do world <- processSignal processMessage processCommand modelLens signal simulant world
+        world
 
 [<AutoOpen>]
 module SignalOperators =

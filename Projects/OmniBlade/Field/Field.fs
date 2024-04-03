@@ -13,6 +13,7 @@ type FieldMessage =
     | Update
     | UpdateFieldTransition
     | UpdateAvatarBodyTracking
+    | TimeUpdate
     | AvatarBodyTransform of BodyTransformData
     | AvatarBodyCollision of BodyCollisionData
     | AvatarBodySeparationExplicit of BodySeparationExplicitData
@@ -81,7 +82,7 @@ type [<SymbolicExpansion>] Options =
     { BattleSpeed : BattleSpeed }
 
 type FieldState =
-    | Playing
+    | Play
     | Quitting
     | Quit
 
@@ -102,7 +103,6 @@ module Field =
               SaveSlot_ : SaveSlot
               OmniSeedState_ : OmniSeedState
               Avatar_ : Avatar
-              AvatarWarped_ : bool
               AvatarCollidedPropIds_ : int list
               AvatarSeparatedPropIds_ : int list
               AvatarIntersectedPropIds_ : int list
@@ -134,7 +134,6 @@ module Field =
         member this.FieldType = this.FieldType_
         member this.OmniSeedState = this.OmniSeedState_
         member this.Avatar = this.Avatar_
-        member this.AvatarWarped = this.AvatarWarped_
         member this.AvatarCollidedPropIds = this.AvatarCollidedPropIds_
         member this.AvatarSeparatedPropIds = this.AvatarSeparatedPropIds_
         member this.AvatarIntersectedPropIds = this.AvatarIntersectedPropIds_
@@ -449,12 +448,6 @@ module Field =
         then { field with AvatarIntersectedPropIds_ = propIds }
         else field
 
-    let updateAvatarWarped updater field =
-        let warped = updater field.AvatarWarped_
-        if warped =/= field.AvatarWarped_
-        then { field with AvatarWarped_ = warped }
-        else field
-
     let updateTeam updater field =
         { field with Team_ = updater field.Team_ }
 
@@ -725,9 +718,6 @@ module Field =
                 | None -> just field
         | Some dialog ->
             interactDialog dialog field
-
-    let private advanceUpdateTime field =
-        { field with UpdateTime_ = inc field.UpdateTime_ }
 
     let rec private advanceCue (cue : Cue) (definitions : CueDefinitions) (field : Field) :
         Cue * CueDefinitions * (Signal list * Field) =
@@ -1180,15 +1170,6 @@ module Field =
         match field.BattleOpt_ with
         | None ->
 
-            // advance field time
-            let field = advanceUpdateTime field
-
-            // warp avatar when needed
-            let (signals, field) =
-                if not field.AvatarWarped_
-                then withSignal (WarpAvatar field.Avatar_.Bottom) field
-                else just field
-
             // advance dialog
             let field =
                 match field.DialogOpt_ with
@@ -1198,8 +1179,7 @@ module Field =
                 | None -> field
 
             // advance cue
-            let (cue, definitions, (signals', field)) = advanceCue field.Cue_ field.Definitions_ field
-            let signals = signals @ signals'
+            let (cue, definitions, (signals, field)) = advanceCue field.Cue_ field.Definitions_ field
 
             // reset cue definitions if finished
             let field =
@@ -1269,6 +1249,10 @@ module Field =
             (signals, field)
         | Some _ -> just field
 
+    let advanceUpdateTime field =
+        let field = { field with UpdateTime_ = inc field.UpdateTime_ }
+        just field
+
     let make time viewBounds2dAbsolute fieldType saveSlot randSeedState (avatar : Avatar) team advents inventory =
         let (spiritRate, debugAdvents, debugKeyItems, definitions) =
             match Data.Value.Fields.TryGetValue fieldType with
@@ -1286,7 +1270,6 @@ module Field =
           SaveSlot_ = saveSlot
           OmniSeedState_ = omniSeedState
           Avatar_ = avatar
-          AvatarWarped_ = false
           AvatarCollidedPropIds_ = []
           AvatarSeparatedPropIds_ = []
           AvatarIntersectedPropIds_ = []
@@ -1310,7 +1293,7 @@ module Field =
           DialogOpt_ = None
           BattleOpt_ = None
           FieldSongTimeOpt_ = None
-          FieldState_ = Playing }
+          FieldState_ = Play }
 
     let empty viewBounds2dAbsolute =
         { UpdateTime_ = 0L
@@ -1319,7 +1302,6 @@ module Field =
           SaveSlot_ = Slot1
           OmniSeedState_ = OmniSeedState.make ()
           Avatar_ = Avatar.empty ()
-          AvatarWarped_ = false
           AvatarCollidedPropIds_ = []
           AvatarSeparatedPropIds_ = []
           AvatarIntersectedPropIds_ = []
@@ -1374,7 +1356,7 @@ module Field =
             let fieldStr = File.ReadAllText saveFilePath
             let field = scvalue<Field> fieldStr
             let props = makeProps time field.FieldType_ field.OmniSeedState_
-            Some { field with AvatarWarped_ = false; Props_ = props }
+            Some { field with Props_ = props }
         with _ -> None
 
     let loadOrInitial time viewBounds2dAbsolute saveSlot =

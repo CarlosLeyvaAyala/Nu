@@ -551,12 +551,11 @@ module WorldModuleEntity =
 
         /// Check that an entity should be allowed to mount another entity.
         static member getEntityAllowedToMount entity world =
-            let mutable property = Unchecked.defaultof<Property>
-            if  World.tryGetEntityProperty (Constants.Engine.BodyTypePropertyName, entity, world, &property) &&
-                property.PropertyType = typeof<BodyType> then
-                match property.PropertyValue :?> BodyType with
-                | Static | Kinematic | KinematicCharacter -> true
-                | Dynamic | DynamicCharacter -> false
+            let mutable bodyTypeProperty = Unchecked.defaultof<Property>
+            if  World.tryGetEntityProperty (Constants.Engine.BodyTypePropertyName, entity, world, &bodyTypeProperty) &&
+                bodyTypeProperty.PropertyType = typeof<BodyType> then
+                let bodyType = bodyTypeProperty.PropertyValue :?> BodyType
+                bodyType = Static || bodyType = Kinematic || bodyType = KinematicCharacter
             else true
 
         /// Check that an entity has any other entities mounted on it.
@@ -2464,7 +2463,7 @@ module WorldModuleEntity =
         static member writeEntities writePropagationHistory entities world =
             entities |>
             Seq.sortBy (fun (entity : Entity) -> World.getEntityOrder entity world) |>
-            Seq.filter (fun (entity : Entity) -> World.getEntityPersistent entity world) |>
+            Seq.filter (fun (entity : Entity) -> World.getEntityPersistent entity world && not (World.getEntityProtected entity world)) |>
             Seq.fold (fun entityDescriptors entity -> World.writeEntity writePropagationHistory EntityDescriptor.empty entity world :: entityDescriptors) [] |>
             Seq.rev |>
             Seq.toList
